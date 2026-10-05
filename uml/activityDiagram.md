@@ -1,1 +1,1 @@
-![Activity Diagram](./Activity Diagram - Dagooc, John Harry P.png)
+![Activity Diagram](./ActivityDiagram.png)
