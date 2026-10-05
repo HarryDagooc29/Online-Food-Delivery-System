@@ -1,1 +1,1 @@
-![Activity Diagram](./Activity Diagram - Dagooc, John Harry P)
+![activityDiagram](./Activity Diagram - Dagooc, John Harry P)
