@@ -3,28 +3,19 @@ class FoodItem {
     private $id;
     private $itemName;
     private $price;
+    private $category; // Added category property
 
-    public function __construct($id, $itemName, $price) {
+    public function __construct($id, $itemName, $price, $category = 'General') {
         $this->id = $id;
         $this->itemName = $itemName;
         $this->price = $price;
+        $this->category = $category;
     }
 
     public function getId() { return $this->id; }
-    public function getItemName() { return $this->itemName; }
-    public function getPrice() { return $this->price; }
+    public function getItemName()  { return $this->itemName; }
+    public function getPrice()  { return $this->price; }
+    public function getCategory() { return $this->category; } // Added getter
 }
-
-class Restaurant {
-    private $id;
-    private $restaurantName;
-
-    public function __construct($id, $restaurantName) {
-        $this->id = $id;
-        $this->restaurantName = $restaurantName;
-    }
-
-    public function getId() { return $this->id; }
-    public function getRestaurantName() { return $this->restaurantName; }
-}
+// ... rest of your Restaurant and User classes
 ?>
