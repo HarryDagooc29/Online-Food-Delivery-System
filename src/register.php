@@ -1,8 +1,25 @@
 <?php
+session_start();
 require_once 'src/Database.php';
 
 $pdo = Database::connect();
-$message = "";
+
+// Retrieve and clear flash message from session
+$message = $_SESSION['flash_message'] ?? "";
+unset($_SESSION['flash_message']);
+
+// Automatically seed a default Admin account if none exists yet
+try {
+    $adminCheck = $pdo->prepare("SELECT id FROM users WHERE role = 'Admin'");
+    $adminCheck->execute();
+    if ($adminCheck->rowCount() === 0) {
+        $hashedAdminPass = password_hash('admin123', PASSWORD_DEFAULT);
+        $seedAdmin = $pdo->prepare("INSERT INTO users (name, email, password, phone, role, delivery_address) VALUES (?, ?, ?, ?, 'Admin', ?)");
+        $seedAdmin->execute(['System Administrator', 'admin@gmail.com', $hashedAdminPass, '09000000000', 'Admin Headquarters']);
+    }
+} catch (PDOException $e) {
+    // Fail silently if tables aren't set up yet
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
     $name     = trim($_POST['name'] ?? '');
@@ -12,26 +29,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
     $address  = trim($_POST['address'] ?? '');
 
     if (empty($name) || empty($email) || empty($password)) {
-        $message = "<div class='alert error'>⚠️ Please fill in all required fields (Name, Email, Password).</div>";
+        $_SESSION['flash_message'] = "<div class='alert error'>⚠️ Please fill in all required fields (Name, Email, Password).</div>";
+        header("Location: register.php");
+        exit;
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $message = "<div class='alert error'>⚠️ Please enter a valid email address.</div>";
+        $_SESSION['flash_message'] = "<div class='alert error'>⚠️ Please enter a valid email address.</div>";
+        header("Location: register.php");
+        exit;
     } else {
+        // Check if email already exists in database (removed name restriction)
         $checkStmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
         $checkStmt->execute([$email]);
         
         if ($checkStmt->rowCount() > 0) {
-            $message = "<div class='alert error'>⚠️ This email is already registered. Please use a different email or log in.</div>";
+            $_SESSION['flash_message'] = "<div class='alert error'>⚠️ An account with this Email address already exists. <a href='login.php' style='color:#ff4757; font-weight:bold;'>Please log in.</a></div>";
+            header("Location: register.php");
+            exit;
         } else {
             $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
 
             try {
-                // Matches your exact database columns: name, email, password, phone, role, delivery_address
+                // Registers regular users as 'Customer'
                 $insertStmt = $pdo->prepare("INSERT INTO users (name, email, password, phone, role, delivery_address) VALUES (?, ?, ?, ?, 'Customer', ?)");
                 $insertStmt->execute([$name, $email, $hashedPassword, $phone, $address]);
+                $newUserId = $pdo->lastInsertId();
+
+                // Automatically log the user in after registration
+                $_SESSION['user_id']   = $newUserId;
+                $_SESSION['user_name'] = $name;
+                $_SESSION['user_role'] = 'Customer';
                 
-                $message = "<div class='alert success'>🎉 Account created successfully! You can now place orders.</div>";
+                header("Location: index.php");
+                exit;
             } catch (PDOException $e) {
-                $message = "<div class='alert error'>⚠️ Database error: " . htmlspecialchars($e->getMessage()) . "</div>";
+                $_SESSION['flash_message'] = "<div class='alert error'>⚠️ Database error: " . htmlspecialchars($e->getMessage()) . "</div>";
+                header("Location: register.php");
+                exit;
             }
         }
     }
@@ -62,6 +95,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
         input:focus, textarea:focus { border-color: #ff4757; outline: none; }
         .btn { background: #ff4757; color: white; border: none; padding: 12px; font-size: 16px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 10px; transition: background 0.2s; }
         .btn:hover { background: #ff6b81; }
+        .admin-info { background: #e1f5fe; color: #0288d1; padding: 10px; border-radius: 6px; font-size: 0.85em; margin-bottom: 15px; }
+        .login-footer { text-align: center; margin-top: 20px; font-size: 0.95em; color: #666; }
+        .login-footer a { color: #ff4757; text-decoration: none; font-weight: bold; }
+        .login-footer a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -70,6 +107,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
     <div class="top-bar">
         <h1>📝 Create Account</h1>
         <a href="index.php" class="home-link">🏠 Back to Store</a>
+    </div>
+
+    <div class="admin-info">
+        💡 <b>Admin Access Note:</b> A default admin account is automatically created for management:<br>
+        Email: <code>admin@gmail.com</code> | Password: <code>admin123</code>
     </div>
 
     <p style="color: #666; font-size: 0.95em; margin-top: 0;">Register your customer details to start ordering delicious meals.</p>
@@ -104,6 +146,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
 
         <button type="submit" name="register" class="btn">Register Account</button>
     </form>
+
+    <div class="login-footer">
+        Already have an account? <a href="login.php">Log in here</a>
+    </div>
 </div>
 
 </body>
