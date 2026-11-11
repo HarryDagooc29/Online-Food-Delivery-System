@@ -1,17 +1,41 @@
 <?php
 session_start();
+
+// Enable error reporting for debugging
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
 require_once 'src/Database.php';
 
 $pdo = Database::connect();
-$message = "";
+
+// Retrieve and clear flash message from session
+$message = $_SESSION['flash_message'] ?? "";
+unset($_SESSION['flash_message']);
+
+$openModalOnLoad = $_SESSION['open_register_modal'] ?? false;
+unset($_SESSION['open_register_modal']);
+
+// Automatically seed a default Admin account if none exists yet
+try {
+    $adminCheck = $pdo->prepare("SELECT id FROM users WHERE role = 'Admin'");
+    $adminCheck->execute();
+    if ($adminCheck->rowCount() === 0) {
+        $hashedAdminPass = password_hash('admin123', PASSWORD_DEFAULT);
+        $seedAdmin = $pdo->prepare("INSERT INTO users (name, email, password, phone, role, delivery_address) VALUES (?, ?, ?, ?, 'Admin', ?)");
+        $seedAdmin->execute(['System Administrator', 'admin@gmail.com', $hashedAdminPass, '09000000000', 'Admin Headquarters']);
+    }
+} catch (PDOException $e) {
+    // Fail silently if tables aren't set up yet
+}
 
 // Handle Login Form Submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'login') {
     $email    = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
 
     if (empty($email) || empty($password)) {
-        $message = "<div class='alert error'>⚠️️ Please fill in both email and password.</div>";
+        $_SESSION['flash_message'] = "<div class='alert error'>⚠ Please fill in both email and password.</div>";
     } else {
         $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
         $stmt->execute([$email]);
@@ -25,29 +49,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
             header("Location: index.php");
             exit;
         } else {
-            $message = "<div class='alert error'>❌ Invalid email or password. Please try again.</div>";
+            $_SESSION['flash_message'] = "<div class='alert error'>❌ Invalid email or password. Please try again.</div>";
         }
     }
+    header("Location: login.php");
+    exit;
 }
 
-// Handle Register Form Submission (from the modal)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
+// Handle Register Form Submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'register') {
     $name     = trim($_POST['name'] ?? '');
     $email    = trim($_POST['reg_email'] ?? '');
     $password = $_POST['reg_password'] ?? '';
     $phone    = trim($_POST['phone'] ?? '');
     $address  = trim($_POST['address'] ?? '');
 
+    // Keep modal open if validation fails
+    $_SESSION['open_register_modal'] = true;
+
     if (empty($name) || empty($email) || empty($password)) {
-        $message = "<div class='alert error'>⚠️ Please fill in all required fields (Name, Email, Password).</div>";
+        $_SESSION['flash_message'] = "<div class='alert error'>⚠️ Please fill in all required fields (Name, Email, Password).</div>";
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $message = "<div class='alert error'>⚠️ Please enter a valid email address.</div>";
+        $_SESSION['flash_message'] = "<div class='alert error'>⚠️ Please enter a valid email address.</div>";
     } else {
         $checkStmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
         $checkStmt->execute([$email]);
         
         if ($checkStmt->rowCount() > 0) {
-            $message = "<div class='alert error'>⚠️ This email is already registered. Please log in.</div>";
+            $_SESSION['flash_message'] = "<div class='alert error'>⚠️ An account with this email address already exists. Please log in.</div>";
         } else {
             $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
 
@@ -55,12 +84,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
                 $insertStmt = $pdo->prepare("INSERT INTO users (name, email, password, phone, role, delivery_address) VALUES (?, ?, ?, ?, 'Customer', ?)");
                 $insertStmt->execute([$name, $email, $hashedPassword, $phone, $address]);
                 
-                $message = "<div class='alert success'>🎉 Account created successfully! You can now log in.</div>";
+                $_SESSION['flash_message'] = "<div class='alert success'>🎉 Account created successfully! You can now log in.</div>";
+                unset($_SESSION['open_register_modal']); // Close modal on success
             } catch (PDOException $e) {
-                $message = "<div class='alert error'>⚠️ Database error: " . htmlspecialchars($e->getMessage()) . "</div>";
+                $_SESSION['flash_message'] = "<div class='alert error'>⚠️ Database error: " . htmlspecialchars($e->getMessage()) . "</div>";
             }
         }
     }
+    header("Location: login.php");
+    exit;
 }
 ?>
 
@@ -107,7 +139,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
         .register-footer a { color: #ff4757; text-decoration: none; font-weight: bold; cursor: pointer; transition: opacity 0.2s; }
         .register-footer a:hover { text-decoration: underline; opacity: 0.8; }
 
-        /* Smooth Modal Pop-up Animation Styles */
+        .admin-info { background: #e1f5fe; color: #0288d1; padding: 10px; border-radius: 6px; font-size: 0.85em; margin-bottom: 15px; }
+
         .modal-overlay { 
             display: flex; 
             visibility: hidden;
@@ -139,7 +172,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
             transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
-        /* Active state classes triggered when "Register here" is clicked */
         .modal-overlay.active { 
             visibility: visible; 
             opacity: 1; 
@@ -161,12 +193,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
         <a href="index.php" class="home-link">🏠 Store</a>
     </div>
 
+    <!-- <div class="admin-info">
+        💡 <b>Admin Login:</b><br>
+        Email: <code>admin@gmail.com</code> | Password: <code>admin123</code>
+    </div> -->
+
     <p style="color: #666; font-size: 0.95em; margin-top: 0;">Log in to your account to place and manage your food orders.</p>
 
-    <?php echo $message; ?>
+    <!-- Flash Message Output -->
+    <?php if (!empty($message)) echo $message; ?>
 
     <!-- Login Form -->
     <form method="POST">
+        <input type="hidden" name="action" value="login">
         <div class="form-group">
             <label>Email Address</label>
             <input type="email" name="email" required placeholder="e.g., juan@example.com">
@@ -177,7 +216,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
             <input type="password" name="password" required placeholder="••••••••">
         </div>
 
-        <button type="submit" name="login" class="btn">Log In</button>
+        <button type="submit" class="btn">Log In</button>
     </form>
 
     <div class="register-footer">
@@ -185,7 +224,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
     </div>
 </div>
 
-<!-- Register Modal Popup with Smooth Spring Animation -->
+<!-- Register Modal Popup -->
 <div id="registerModal" class="modal-overlay">
     <div class="modal-content">
         <button class="modal-close" onclick="closeRegisterModal()">&times;</button>
@@ -193,6 +232,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
         <p style="color: #666; font-size: 0.9em; margin-bottom: 20px;">Register your details to start placing orders.</p>
         
         <form method="POST">
+            <input type="hidden" name="action" value="register">
             <div class="modal-form-group">
                 <label>Full Name *</label>
                 <input type="text" name="name" required placeholder="e.g., Juan Dela Cruz">
@@ -218,7 +258,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
                 <textarea name="address" rows="2" placeholder="Complete street address..."></textarea>
             </div>
 
-            <button type="submit" name="register" class="btn" style="margin-top: 5px;">
+            <button type="submit" class="btn" style="margin-top: 5px;">
                 Register Account
             </button>
         </form>
@@ -234,13 +274,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
         document.getElementById('registerModal').classList.remove('active');
     }
 
-    // Close modal smoothly when clicking outside the white content box
     window.onclick = function(event) {
         let modal = document.getElementById('registerModal');
         if (event.target === modal) {
             closeRegisterModal();
         }
     }
+
+    // Automatically reopen register modal if registration failed/validated with error
+    <?php if ($openModalOnLoad): ?>
+        window.addEventListener('DOMContentLoaded', (event) => {
+            openRegisterModal();
+        });
+    <?php endif; ?>
 </script>
 
 </body>
